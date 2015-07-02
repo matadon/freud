@@ -1,0 +1,6 @@
+{
+    "root": "../..",
+    "pidfile": "tmp/true.pid",
+    "logfile": "tmp/true.log",
+    "commands": { "quux": "/bin/true" }
+}

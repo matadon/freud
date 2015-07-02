@@ -1,0 +1,5 @@
+#!/usr/bin/env ruby
+
+require "freud/runner"
+
+Freud::Runner.run
