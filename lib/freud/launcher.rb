@@ -8,7 +8,7 @@ module Freud
         include Agrippa::Mutable
 
         state_reader %w(name root pidfile logfile background create_pidfile
-            reset_shell_env shell_env commands sudo_user args)
+            reset_env env commands sudo_user args)
 
         state_accessor :process
 
@@ -20,15 +20,15 @@ module Freud
             @args = args
             case(command)
                 when "help" then show_help
-                when "start" then daemonize(fetch_executable(command))
+                when "start" then daemonize(fetch_executable(command, true))
                 else execute(fetch_executable(command))
             end
         end
 
         private
 
-        def fetch_executable(command)
-            apply_sudo do
+        def fetch_executable(command, background = false)
+            apply_sudo(background) do
                 commands.fetch(command) do
                     show_help(false)
                     logger.fatal("Unknown command: #{command}") 
@@ -36,12 +36,15 @@ module Freud
             end
         end
 
-        def apply_sudo
+        def apply_sudo(background)
             command = yield
-            return(command) unless sudo_user
-            sudo = "sudo --preserve-env --non-interactive --user #{sudo_user}"
-            bash = sprintf("bash -c \"%s\"", command.gsub(/"/, '\\"'))
-            "#{sudo} -- #{bash}"
+            return(command) unless (sudo_user.to_s != "")
+            bash = sprintf('bash -c "%s"', command.gsub(/"/, '\\"'))
+            sudo_env = env.map { |key, value| sprintf('%s="%s"', key,
+                value.gsub(/"/, '\\"')) }.join(" ")
+            maybe_background = background ? "-b" : ""
+            sudo_options = "-n #{maybe_background} -u #{sudo_user}"
+            "sudo #{sudo_options} #{sudo_env} -- #{bash}"
         end
 
         def show_help(terminate = true)
@@ -53,19 +56,19 @@ module Freud
         def execute(command, options = nil)
             log_runtime_environment(command)
             $PROGRAM_NAME = command
-            process.exec(shell_env, command, options || spawn_options)
+            process.exec(env, command, options || spawn_default_options)
             self
         end
 
         def daemonize(command)
             return(self) if running?
-            options = spawn_options
+            options = spawn_default_options
             options[:err] = [ logfile, "a" ] if logfile
             create_logfile
             if background
                 options.merge!(pgroup: true)
                 log_runtime_environment(command, options)
-                pid = process.spawn(shell_env, command, options)
+                pid = process.spawn(env, command, options)
                 maybe_create_pidfile(pid)
             else
                 $PROGRAM_NAME = command
@@ -75,11 +78,11 @@ module Freud
         end
 
         def log_runtime_environment(command, options = nil)
-            options ||= spawn_options
+            options ||= spawn_default_options
             logger.debug("running #{command}")
             logger.debug("env #{ENV.inspect}")
-            logger.debug("shell_env #{shell_env.inspect}")
-            logger.debug("spawn_options #{options.inspect}")
+            logger.debug("env #{env.inspect}")
+            logger.debug("spawn_default_options #{options.inspect}")
             self
         end
 
@@ -94,9 +97,9 @@ module Freud
             self
         end
 
-        def spawn_options
+        def spawn_default_options
             output = {}
-            output[:unsetenv_others] = (reset_shell_env == true)
+            output[:unsetenv_others] = (reset_env == true)
             output[:chdir] = root
             output[:close_others] = true
             output[:in] = "/dev/null"

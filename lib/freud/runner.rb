@@ -1,3 +1,4 @@
+require "freud/version"
 require "freud/logging"
 require "freud/config"
 require "freud/launcher"
@@ -17,10 +18,15 @@ module Freud
         def run(args)
             command = extract_command(args)
             case(command)
+            when "version" then run_version
             when "generate", "g" then run_generate(args)
-            when "checkpid" then run_checkpid(args)
-            when "waitpid" then run_waitpid(args)
-            when "dump-config" then run_dump_config(args)
+            when "@check" then run_check(args)
+            when "@wait-up" then run_wait_up(args)
+            when "@wait-down" then run_wait_down(args)
+            when "@signal-term" then run_signal(args, "TERM")
+            when "@signal-kill" then run_signal(args, "KILL")
+            when "@signal-hup" then run_signal(args, "HUP")
+            when "@dump" then run_dump(args)
             else Launcher.new(fetch_config(args).to_hash).run(command, args)
             end
         end
@@ -29,8 +35,13 @@ module Freud
 
         def fetch_config(args)
             file = extract_file(args)
-            environment = extract_environment(args)
-            Config.new.load(file, environment)
+            stage = extract_stage(args)
+            Config.new.load(file, stage)
+        end
+
+        def run_version
+            logger.info Freud::VERSION
+            exit(0)
         end
 
         def run_generate(args)
@@ -44,22 +55,22 @@ module Freud
                     "root": "#{File.expand_path(Dir.pwd)}",
                     "background": false,
                     "create_pidfile": false,
-                    "reset_shell_env": false,
+                    "reset_env": false,
                     "pidfile": "tmp/#{name}.pid",
                     "logfile": "log/#{name}.log",
                     "vars": {},
-                    "shell_env": {},
-                    "environments": {
+                    "env": {},
+                    "stages": {
                         "development": {},
                         "production": {}
                     },
                     "commands": {
                         "start": "/bin/false",
-                        "stop": "%self checkpid quiet && kill -TERM %pid && %self waitpid",
-                        "restart": "%self stop && %self start",
-                        "reload": "%self checkpid quiet && kill -HUP %pid",
-                        "kill": "%self checkpid quiet && kill -KILL %pid",
-                        "status": "%self checkpid"
+                        "stop": "%freud @signal-term; %freud @wait-down",
+                        "restart": "%freud stop && %freud start",
+                        "reload": "%freud @signal-hup; %freud @wait-up",
+                        "kill": "%freud @signal-kill; %freud @wait-down",
+                        "status": "%freud @check"
                     }
                 }
             END
@@ -68,23 +79,25 @@ module Freud
             exit(0)
         end
 
-        def run_checkpid(args)
-            quiet = extract_flag(args, "-q", "--quiet")
+        def run_check(args)
             config = fetch_config(args)
+            print_status(config)
+        end
+
+        def print_status(config)
             pidfile = config.fetch("pidfile")
             name = config.fetch("name")
             if pidfile.running?
                 pid = pidfile.read
-                logger.info("#{name} up with PID #{pid}.") unless quiet
-                exit(0)
+                logger.info("#{name} up with PID #{pid}.")
             else
-                logger.info("#{name} down.") unless quiet
-                exit(1)
+                logger.info("#{name} down.")
             end
+            exit(0)
         end
 
-        def run_waitpid(args)
-            timeout = (extract_option(args, "-t", "--timeout") || 5).to_i
+        def run_wait_down(args)
+            timeout = (extract_option(args, "-t", "--timeout") || 30).to_i
             config = fetch_config(args)
             pidfile = config.fetch("pidfile")
             name = config.fetch("name")
@@ -97,11 +110,33 @@ module Freud
                 logger.info("#{name} not down within #{timeout} seconds.")
                 exit(1)
             end
-            logger.info("#{name} down.")
+            print_status(config)
+        end
+
+        def run_wait_up(args)
+            timeout = (extract_option(args, "-t", "--timeout") || 30).to_i
+            config = fetch_config(args)
+            pidfile = config.fetch("pidfile")
+            name = config.fetch("name")
+            started_at = Time.now.to_i
+            while(not pidfile.running?)
+                sleep(0.25)
+                next if ((Time.now.to_i - started_at) < timeout)
+                logger.info("#{name} not up within #{timeout} seconds.")
+                exit(1)
+            end
+            print_status(config)
+        end
+
+        def run_signal(args, signal)
+            config = fetch_config(args)
+            pidfile = config.fetch("pidfile")
+            exit(1) unless pidfile.running?
+            pidfile.kill(signal)
             exit(0)
         end
 
-        def run_dump_config(args)
+        def run_dump(args)
             fetch_config(args).dump
             exit(0)
         end
@@ -133,28 +168,30 @@ module Freud
         end
 
         def extract_file(args)
-            filename = first_file_in(args.shift, ENV["FREUD_CONFIG"])
+            service_path = ENV["FREUD_SERVICE_PATH"] || "services"
+            path = args.shift
+            filename = first_file_in(path, "#{service_path}/#{path}.json",
+                ENV["FREUD_CONFIG"])
             usage unless filename
             logger.fatal("Can't open: #{filename}") \
                 unless (File.file?(filename) and File.readable?(filename))
             File.open(filename, "r")
         end
 
-        def extract_environment(args)
-            args.shift || ENV["FREUD_ENV"] || "development"
+        def extract_stage(args)
+            args.shift || ENV["FREUD_STAGE"] || "development"
         end
 
         def first_file_in(*paths)
             paths.each do |path|
                 next if path.nil?
-                json_path = path.sub(/(\.json)?$/, ".json")
-                return(json_path) if File.exists?(json_path)
+                return(path) if File.exists?(path)
             end
             nil
         end
 
         def usage
-            logger.fatal("Usage: freud [command] [file] <environment>")
+            logger.fatal("Usage: freud [command] [file] <stage>")
         end
     end
 end

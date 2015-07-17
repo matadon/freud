@@ -34,6 +34,7 @@ module Freud
         end
 
         def apply(input)
+            return(nil) if input.nil?
             interpolated = input.gsub(VARIABLES) do 
                 key = $~[2] || $~[3] || $~[4] 
                 default = $~[5] || UNDEFINED

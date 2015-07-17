@@ -12,7 +12,7 @@ RSpec.describe Freud::Launcher do
 
     it "#new" do
         fields = %w(name root pidfile logfile background create_pidfile
-            reset_shell_env shell_env commands)
+            reset_env env commands)
         command = Freud::Launcher.new(Hash[fields.map { |k| [ k, 42 ] }])
         fields.each { |f| expect(command.send(f)).to eq(42) }
     end
@@ -35,14 +35,14 @@ RSpec.describe Freud::Launcher do
             it "bad external command" do
                 allow(pidfile).to receive(:read).and_return(35767)
                 config = { "process" => process, "pidfile" => pidfile,
-                    "shell_env" => {}, "commands" => {} }
+                    "env" => {}, "commands" => {} }
                 try(config, "notacommand") { |e| expect(e.value).to eq(1) }
             end
 
             it "test: /bin/true" do
                 allow(pidfile).to receive(:read).and_return(35767)
                 config = { "process" => process, "pidfile" => pidfile,
-                    "shell_env" => {}, "commands" => { "test" => "/bin/true" } }
+                    "env" => {}, "commands" => { "test" => "/bin/true" } }
                 expect(process).to receive(:exec).with({}, "/bin/true",
                     { unsetenv_others: false, chdir: nil, close_others: true,
                     in: "/dev/null", out: :err })
@@ -54,7 +54,7 @@ RSpec.describe Freud::Launcher do
             it "bad external command" do
                 allow(pidfile).to receive(:read).and_return(35767)
                 config = { "process" => process, "pidfile" => pidfile,
-                    "shell_env" => {}, "commands" => {} }
+                    "env" => {}, "commands" => {} }
                 try(config, "start") { |e| expect(e.value).to eq(1) }
             end
 
@@ -63,7 +63,7 @@ RSpec.describe Freud::Launcher do
                 allow(pidfile).to receive(:running?).and_return(false)
                 allow(process).to receive(:pid).and_return(35767)
                 config = { "process" => process, "pidfile" => pidfile,
-                    "shell_env" => {}, "background" => false,
+                    "env" => {}, "background" => false,
                     "commands" => { "start" => "/bin/true" } }
                 expect(process).to receive(:exec).with({}, "/bin/true",
                     { unsetenv_others: false, chdir: nil, close_others: true,
@@ -75,7 +75,7 @@ RSpec.describe Freud::Launcher do
                 allow(pidfile).to receive(:read).and_return(nil)
                 allow(pidfile).to receive(:running?).and_return(false)
                 config = { "process" => process, "pidfile" => pidfile,
-                    "shell_env" => {}, "background" => true,
+                    "env" => {}, "background" => true,
                     "commands" => { "start" => "/bin/true" } }
                 expect(process).to receive(:spawn).with({}, "/bin/true",
                     { unsetenv_others: false, chdir: nil, close_others: true,
@@ -83,12 +83,12 @@ RSpec.describe Freud::Launcher do
                 try(config, "start")
             end
 
-            it "reset_shell_env" do
+            it "reset_env" do
                 allow(pidfile).to receive(:read).and_return(nil)
                 allow(pidfile).to receive(:running?).and_return(false)
                 allow(process).to receive(:pid).and_return(35767)
                 config = { "process" => process, "pidfile" => pidfile,
-                    "shell_env" => {}, "reset_shell_env" => true,
+                    "env" => {}, "reset_env" => true,
                     "commands" => { "start" => "/bin/true" } }
                 expect(process).to receive(:exec).with({}, "/bin/true",
                     { unsetenv_others: true, chdir: nil, close_others: true,
@@ -102,7 +102,7 @@ RSpec.describe Freud::Launcher do
                 allow(pidfile).to receive(:write).with(35767)
                 allow(process).to receive(:pid).and_return(35767)
                 config = { "process" => process, "pidfile" => pidfile,
-                    "shell_env" => {}, "create_pidfile" => true,
+                    "env" => {}, "create_pidfile" => true,
                     "commands" => { "start" => "/bin/true" } }
                 expect(process).to receive(:exec).with({}, "/bin/true",
                     { unsetenv_others: false, chdir: nil, close_others: true,

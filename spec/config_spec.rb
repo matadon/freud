@@ -55,14 +55,14 @@ RSpec.describe Freud::Config do
 
     describe "#load" do
         def mock_file(name, content = nil)
-            default = { environments: { hostile: {} } }
+            default = { stages: { back: {} } }
             content ||= block_given? ? yield : default
             content = JSON.dump(content) if content.is_a?(Hash)
             double(read: content, path: name, close: true)
         end
 
-        def call(file, environment = "development")
-            Freud::Config.new.load(file, environment)
+        def call(file, stage = "development")
+            Freud::Config.new.load(file, stage)
         end
 
         let(:root) { File.expand_path("#{File.dirname(__FILE__)}/..") }
@@ -95,10 +95,10 @@ RSpec.describe Freud::Config do
             expect(config.fetch("logfile")).to eq("#{root}/log/monkey.log")
         end
 
-        it "shell_env FREUD_ENV" do
-            config = call(mock_file("monkey"), "hostile")
-            shell_env = config.to_hash.fetch("shell_env")
-            expect(shell_env["FREUD_ENV"]).to eq("hostile")
+        it "env FREUD_STAGE" do
+            config = call(mock_file("monkey"), "back")
+            env = config.to_hash.fetch("env")
+            expect(env["FREUD_STAGE"]).to eq("back")
         end
 
         it "background" do
@@ -106,9 +106,9 @@ RSpec.describe Freud::Config do
             expect(config.fetch("background")).to be(true)
         end
 
-        it "reset_shell_env" do
-            config = call(mock_file("monkey", reset_shell_env: true))
-            expect(config.fetch("reset_shell_env")).to be(true)
+        it "reset_env" do
+            config = call(mock_file("monkey", reset_env: true))
+            expect(config.fetch("reset_env")).to be(true)
         end
 
         it "create_pidfile" do
@@ -120,14 +120,22 @@ RSpec.describe Freud::Config do
             content = mock_file("monkey", <<-END)
                 {
                     // Comment one.
-                    "reset_shell_env": true,
+                    "reset_env": true,
                     /* Comment two */
                     "name": "quux"
                 }
             END
             config = call(content)
-            expect(config.fetch("reset_shell_env")).to be(true)
+            expect(config.fetch("reset_env")).to be(true)
             expect(config.fetch("name")).to eq("quux")
+        end
+
+        it "interpolates fully-merged" do
+            vars = { vars: { "RUNAS_USER" => "bob" } }
+            content = mock_file("monkey", sudo_user: "%RUNAS_USER",
+                stages: { development: vars })
+            config = call(content)
+            expect(config.fetch("sudo_user")).to eq("bob")
         end
     end
 end

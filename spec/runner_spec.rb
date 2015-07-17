@@ -36,49 +36,75 @@ RSpec.describe Freud::Runner do
             expect(runnable).to raise_error(Freud::RunnerExit, &block)
         end
 
-        after(:each) { ENV.delete("FREUD_CONFIG") }
+        after(:each) do
+            ENV.delete("FREUD_CONFIG")
+            ENV.delete("FREUD_STAGE")
+            ENV.delete("FREUD_SERVICE_PATH")
+        end
 
-        it "checkpid (up)" do
+        it "@check (up)" do
             Freud::Pidfile.new("#{root}/tmp/true.pid").write(Process.pid)
-            args = [ "checkpid", "spec/fixtures/true" ]
+            args = [ "@check", "spec/fixtures/true.json" ]
             try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(0) }
         end
 
-        it "checkpid via FREUD_CONFIG" do
-            ENV["FREUD_CONFIG"] = "spec/fixtures/true"
+        it "@check via FREUD_CONFIG" do
+            ENV["FREUD_CONFIG"] = "spec/fixtures/true.json"
             Freud::Pidfile.new("#{root}/tmp/true.pid").write(Process.pid)
-            args = [ "checkpid" ]
+            args = [ "@check" ]
             try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(0) }
+            log.rewind
+            expect(log.read).to match(/\bup\b/)
         end
 
-        it "checkpid (down)" do
-            ENV["FREUD_CONFIG"] = "spec/fixtures/true"
+        it "@check (down)" do
+            ENV["FREUD_CONFIG"] = "spec/fixtures/true.json"
             Freud::Pidfile.new("#{root}/tmp/true.pid").write(unused_pid)
-            args = [ "checkpid", "spec/fixtures/true" ]
-            try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(1) }
+            args = [ "@check", "spec/fixtures/true.json" ]
+            try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(0) }
+            log.rewind
+            expect(log.read).to match(/\bdown\b/)
         end
 
-        it "waitpid (up)" do
-            ENV["FREUD_CONFIG"] = "spec/fixtures/true"
+        it "@wait-up (up)" do
+            ENV["FREUD_CONFIG"] = "spec/fixtures/true.json"
             Freud::Pidfile.new("#{root}/tmp/true.pid").write(Process.pid)
-            args = [ "waitpid", "-t", "1" ]
+            args = [ "@wait-up", "-t", "1" ]
+            started_at = Time.now.to_i
+            try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(0) }
+            expect(Time.now.to_i - started_at).to be < 2
+        end
+
+        it "@wait-up (down)" do
+            ENV["FREUD_CONFIG"] = "spec/fixtures/true.json"
+            Freud::Pidfile.new("#{root}/tmp/true.pid").write(unused_pid)
+            args = [ "@wait-up", "-t", "1" ]
             started_at = Time.now.to_i
             try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(1) }
             expect(Time.now.to_i - started_at).to be < 2
         end
 
-        it "waitpid (down)" do
-            ENV["FREUD_CONFIG"] = "spec/fixtures/true"
+        it "@wait-down (down)" do
+            ENV["FREUD_CONFIG"] = "spec/fixtures/true.json"
             Freud::Pidfile.new("#{root}/tmp/true.pid").write(unused_pid)
-            args = [ "waitpid" ]
+            args = [ "@wait-down", "-t", "1" ]
             try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(0) }
+        end
+
+        it "@wait-down (up)" do
+            ENV["FREUD_CONFIG"] = "spec/fixtures/true.json"
+            Freud::Pidfile.new("#{root}/tmp/true.pid").write(Process.pid)
+            args = [ "@wait-down", "-t", "1" ]
+            try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(1) }
         end
 
         it "generate" do
             Freud::Pidfile.new("#{root}/tmp/true.pid").write(unused_pid)
-            args = [ "g", "tmp/generated" ]
+            args = [ "g", "tmp/generated.json" ]
             try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(0) }
-            expect(File.exists?("#{root}/tmp/generated.json")).to be(true)
+            generated = "#{root}/tmp/generated.json"
+            expect(File.exists?(generated)).to be(true)
+            expect { JSON.parse(File.read(generated)) }.to_not raise_error
         end
 
         it "usage" do
@@ -90,7 +116,15 @@ RSpec.describe Freud::Runner do
         end
 
         it "help" do
-            args = [ "help", "spec/fixtures/true" ]
+            args = [ "help", "spec/fixtures/true.json" ]
+            try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(0) }
+            log.rewind
+            expect(log.read).to match(/quux/)
+        end
+
+        it "FREUD_SERVICE_PATH" do
+            ENV["FREUD_SERVICE_PATH"] = "spec/fixtures"
+            args = [ "help", "true" ]
             try(lambda { runner.run(args) }) { |r| expect(r.value).to eq(0) }
             log.rewind
             expect(log.read).to match(/quux/)

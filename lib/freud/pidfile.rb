@@ -28,11 +28,16 @@ module Freud
             File.expand_path(to_s) == File.expand_path(other.to_s)
         end
 
-        def running?
+        def kill(signal)
             pid = read
-            return(false) unless pid
+            return(self) unless pid
+            Process.kill(signal, pid)
+            self
+        end
+
+        def running?
             begin
-                Process.kill(0, pid)
+                kill(0)
                 true
             rescue Errno::ESRCH
                 false

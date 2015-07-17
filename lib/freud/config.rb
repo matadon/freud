@@ -18,16 +18,16 @@ module Freud
             @vars = Variables.new
         end
 
-        def load(file, environment)
+        def load(file, stage)
             json = load_json(file)
-            merge(defaults(file))
-            merge(globals(json))
-            merge(environmental(environment))
-            merge(overrides(environment))
+            merge(default_config(file))
+            merge(global_config(json))
+            merge(stage_config(stage))
+            merge(override_config(stage))
             initialize_vars(file)
-            interpolate_shell_env
+            interpolate_env
             interpolate_commands
-            config.delete("environments")
+            config.delete("stages")
             config.delete("vars")
             self
         end
@@ -66,10 +66,12 @@ module Freud
             store_vars(:root, root_path)
             store(:root, root_path)
             interpolate(:pidfile)
+            interpolate(:sudo_user)
             pidfile_path = expand_path(fetch(:pidfile), root_path)
             store(:pidfile, Pidfile.new(pidfile_path))
             interpolate(:logfile)
-            store(:logfile, expand_path(fetch(:logfile), root_path))
+            logfile = fetch(:logfile)
+            store(:logfile, expand_path(logfile, root_path)) if logfile
             store_vars(:pid, read_pidfile)
         end
 
@@ -98,9 +100,9 @@ module Freud
         def validate(hash)
             strings = %w(root pidfile logfile sudo_user)
             strings.each { |key| validate_string(key, hash[key]) }
-            booleans = %w(background create_pidfile reset_shell_env)
+            booleans = %w(background create_pidfile reset_env)
             booleans.each { |key| validate_boolean(key, hash[key]) }
-            hashes = %w(vars shell_env commands)
+            hashes = %w(vars env commands)
             hashes.each { |key| validate_hash(key, hash[key]) }
             hash
         end
@@ -136,9 +138,9 @@ module Freud
             fetch(:pidfile).read
         end
 
-        def interpolate_shell_env
-            shell_env = fetch(:shell_env)
-            shell_env.each_pair { |k, v| shell_env[k] = apply_vars(v) }
+        def interpolate_env
+            env = fetch(:env)
+            env.each_pair { |k, v| env[k] = apply_vars(v) }
             self
         end
 
@@ -161,17 +163,17 @@ module Freud
                 .downcase
         end
 
-        def defaults(file)
+        def default_config(file)
             deep_stringify_keys(
                 name: File.basename(file.path).gsub(/\..*$/, ''),
                 root: File.dirname(file.path),
                 background: false,
                 create_pidfile: false,
-                reset_shell_env: false,
+                reset_env: false,
                 pidfile: "tmp/%name.pid",
                 vars: {},
-                shell_env: { FREUD_CONFIG: file.path },
-                environments: { development: {}, production: {} },
+                env: { FREUD_CONFIG: file.path },
+                stages: { development: {}, production: {} },
                 commands: {
                     stop: "%self checkpid quiet && kill -TERM %pid",
                     restart: "%self stop && %self start",
@@ -180,23 +182,23 @@ module Freud
                     status: "%self checkpid" })
         end
 
-        def globals(json)
+        def global_config(json)
             snakify_keys(json)
         end
 
-        def environmental(name)
-            environments = snakify_keys(config.fetch("environments"))
-            environments.fetch(name) { raise("Unknown environment: #{name}")}
+        def stage_config(name)
+            stages = snakify_keys(config.fetch("stages"))
+            stages.fetch(name) { raise("Unknown stage: #{name}")}
         end
 
-        def overrides(environment)
+        def override_config(stage)
             deep_stringify_keys(
-                vars: { environment: environment },
-                shell_env: { FREUD_ENV: "%environment" })
+                vars: { stage: stage },
+                env: { FREUD_STAGE: "%stage" })
         end
 
         def interpolate(key)
-            value = apply_vars(fetch(key, ""))
+            value = apply_vars(fetch(key, nil))
             store_vars(key, value)
             store(key, value)
         end
